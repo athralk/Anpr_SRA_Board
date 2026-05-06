@@ -3,6 +3,25 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <ESP32Servo.h>
+
+/* ================= SERVO ================= */
+
+Servo gateServo;
+
+int servoPin = 15;
+
+int closedPos = 0;
+int openPos = 90;
+
+// Allowed plates list
+String allowedPlates[] = {
+  "MH20EJ0364",
+  "MH 20 EJ 0364",
+  "TEST123"
+};
+
+int numAllowed = 3;
 
 /* ================= WIFI ================= */
 
@@ -46,7 +65,7 @@ String webpage = R"rawliteral(
 </html>
 )rawliteral";
 
-/* ================= OLED ================= */
+/* ================= OLED DISPLAY ================= */
 
 void showText(String text)
 {
@@ -61,30 +80,68 @@ void showText(String text)
   display.display();
 }
 
+/* ================= SERVO FUNCTIONS ================= */
+
+bool isAllowed(String plate)
+{
+  plate.trim();
+  plate.toUpperCase();
+
+  for (int i = 0; i < numAllowed; i++)
+  {
+    if (plate == allowedPlates[i])
+    {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void openGate()
+{
+  gateServo.write(openPos);
+
+  delay(4000);
+
+  gateServo.write(closedPos);
+}
+
 /* ================= ROOT ================= */
 
 void handleRoot()
 {
-  server.send(200, "text/html", webpage);
+  server.send(
+    200,
+    "text/html",
+    webpage
+  );
 }
 
-/* ================= UPLOAD ================= */
+/* ================= IMAGE UPLOAD ================= */
 
 void handleUpload()
 {
-  HTTPUpload& upload = server.upload();
+  HTTPUpload& upload =
+    server.upload();
 
-  if (upload.status == UPLOAD_FILE_START)
+  if (upload.status ==
+      UPLOAD_FILE_START)
   {
     Serial.print("<IMAGE>");
   }
 
-  else if (upload.status == UPLOAD_FILE_WRITE)
+  else if (upload.status ==
+           UPLOAD_FILE_WRITE)
   {
-    Serial.write(upload.buf, upload.currentSize);
+    Serial.write(
+      upload.buf,
+      upload.currentSize
+    );
   }
 
-  else if (upload.status == UPLOAD_FILE_END)
+  else if (upload.status ==
+           UPLOAD_FILE_END)
   {
     Serial.print("</IMAGE>");
 
@@ -96,8 +153,10 @@ void handleUpload()
 
     String plate = "";
 
-    unsigned long startTime = millis();
+    unsigned long startTime =
+      millis();
 
+    // Wait for OCR result
     while (millis() - startTime < 10000)
     {
       if (Serial.available())
@@ -111,7 +170,8 @@ void handleUpload()
         int end =
           response.indexOf("</PLATE>");
 
-        if (start != -1 && end != -1)
+        if (start != -1 &&
+            end != -1)
         {
           plate =
             response.substring(
@@ -124,10 +184,39 @@ void handleUpload()
       }
     }
 
+    /* ===== PROCESS RESULT ===== */
+
     if (plate.length() > 0)
+    {
       showText(plate);
+
+      if (isAllowed(plate))
+      {
+        Serial.println("ACCESS GRANTED");
+
+        showText("Allowed");
+
+        openGate();
+
+        delay(2000);
+
+        showText(plate);
+      }
+      else
+      {
+        Serial.println("ACCESS DENIED");
+
+        showText("Denied");
+
+        delay(2000);
+
+        showText(plate);
+      }
+    }
     else
+    {
       showText("No Plate");
+    }
   }
 }
 
@@ -144,16 +233,14 @@ void setup()
     OLED_SCL
   );
 
-  if (!display.begin(
-        SSD1306_SWITCHCAPVCC,
-        0x3C))
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
   {
     while (true);
   }
 
   showText("Starting");
 
-/* WIFI ACCESS POINT */
+  /* WIFI ACCESS POINT */
 
   WiFi.softAP(
     ssid,
@@ -165,7 +252,7 @@ void setup()
 
   showText(IP.toString());
 
-/* SERVER ROUTES */
+  /* SERVER ROUTES */
 
   server.on(
     "/",
@@ -181,6 +268,18 @@ void setup()
   );
 
   server.begin();
+
+  /* SERVO INIT */
+
+  gateServo.attach(
+    servoPin,
+    500,
+    2400
+  );
+
+  gateServo.write(
+    closedPos
+  );
 }
 
 /* ================= LOOP ================= */
